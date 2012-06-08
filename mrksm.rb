@@ -1,5 +1,4 @@
 # coding: utf-8
-require 'open-uri'
 require 'fileutils'
 require 'bundler/setup'
 Bundler.require(:default) if defined?(Bundler)
@@ -14,6 +13,7 @@ class Mrksm
   end
 
   def initialize(opt = {})
+    @agent = Mechanize.new
     @dir = opt[:dir] || 'image'
     @entry = latest
   end
@@ -41,7 +41,7 @@ class Mrksm
   end
 
   def latest
-    @page = Nokogiri.HTML(open(BLOG))
+    @page = @agent.get(BLOG)
     @page.at('a.title')['href']
   end
 
@@ -49,12 +49,12 @@ class Mrksm
     if @entry =~ /post-82\.html$/
       return 'http://blog.mariko-shinoda.net/2012/01/post-81.html'
     end
-    @page ||= Nokogiri.HTML(open(@entry))
+    @page ||= @agent.get(@entry)
     (elm = @page.at('a.previous')) ? elm['href'] : nil
   end
 
   def images
-    @page = Nokogiri.HTML(open(@entry))
+    @page = @agent.get(@entry)
     @page.at('.blogbody').search('img[width!="20"]').map do |img|
       img['src'].sub('-300x300', '').sub('-thumbnail2', '')
     end
@@ -70,9 +70,9 @@ class Mrksm
     dir = File.dirname(file)
 
     FileUtils.mkdir_p(dir) unless Dir.exists?(dir)
-    res = open(image_url)
-    if res.content_type =~ /^image/
-      open(file, 'wb').print res.read unless File.exists?(file)
+    image = @agent.get(image_url)
+    if image.response['content-type'] =~ /^image/
+      image.save(file) unless File.exists?(file)
       puts "downloaded #{image_url} -> #{file}"
     end
   end
