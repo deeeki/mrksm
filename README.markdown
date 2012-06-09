@@ -14,7 +14,7 @@ downloader for images on Mariko Shinoda's diary
 
     ruby mrksm.rb
 
-images will be saved into "./image" directory.
+images will be saved into "./images" directory.
 
 ### Saving specific directory
 

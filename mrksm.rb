@@ -5,7 +5,7 @@ Bundler.require(:default) if defined?(Bundler)
 
 class Mrksm
   BLOG = 'http://blog.mariko-shinoda.net'
-  LOG = './latest'
+  LOG = './downloaded'
 
   def self.get(dir)
     mrksm = self.new(:dir => dir)
@@ -14,12 +14,17 @@ class Mrksm
 
   def initialize(opt = {})
     @agent = Mechanize.new
-    @dir = opt[:dir] || 'image'
+    @dir = opt[:dir] || 'images'
     @entry = latest
+    File.open(LOG, 'w'){|f| f.puts '1970-01-01' } unless File.exist?(LOG)
   end
 
   def process
-    return unless check_updated
+    unless date > latest_downloaded_date
+      puts 'not updated'
+      return
+    end
+    write_log
     begin
       dir = date.strftime('%Y%m%d')
       images.each_with_index do |img, i|
@@ -27,17 +32,11 @@ class Mrksm
         save(img, path)
       end
       @entry = previous
-    end while @entry
+    end while @entry && date > latest_downloaded_date
   end
 
-  def check_updated
-    File.open(LOG, 'w'){|f| f.puts '' } unless File.exist?(LOG)
-    if @entry == IO.read(LOG).chomp
-      false
-    else
-      File.open(LOG, 'w'){|f| f.puts @entry }
-      true
-    end
+  def write_log
+    File.open(LOG, 'w'){|f| f.puts date }
   end
 
   def latest
@@ -63,6 +62,10 @@ class Mrksm
   def date
     elm = @page.at('h2.date')
     Date.strptime(elm.text, "%Y年%m月%d日") if elm
+  end
+
+  def latest_downloaded_date
+    @latest_downloaded_date ||= Date.parse(IO.read(LOG).chomp)
   end
 
   def save(image_url, path)
