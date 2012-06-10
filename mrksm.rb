@@ -3,80 +3,91 @@ require 'fileutils'
 require 'bundler/setup'
 Bundler.require(:default) if defined?(Bundler)
 
-class Mrksm
+module Mrksm
   BLOG = 'http://blog.mariko-shinoda.net'
   LOG = './downloaded'
+  AGENT = Mechanize.new
 
   def self.get(dir)
-    mrksm = self.new(:dir => dir)
+    mrksm = Downloader.new(:dir => dir)
     mrksm.process
   end
 
-  def initialize(opt = {})
-    @agent = Mechanize.new
-    @dir = opt[:dir] || 'images'
-    @entry = latest
-    File.open(LOG, 'w'){|f| f.puts '1970-01-01' } unless File.exist?(LOG)
-  end
-
-  def process
-    unless date > latest_downloaded_date
-      puts 'not updated'
-      return
+  class Entry
+    def self.latest_url
+      page = AGENT.get(BLOG)
+      page.at('a.title')['href'] if page
     end
-    write_log
-    begin
-      dir = date.strftime('%Y%m%d')
-      images.each_with_index do |img, i|
-        path = "#{dir}/#{sprintf('%02d', i + 1)}#{File.extname(img)}"
-        save(img, path)
+
+    def initialize url
+      @url = url
+      @page = AGENT.get(url)
+    end
+
+    def date
+      @date ||= (elm = @page.at('h2.date')) ? Date.strptime(elm.text, "%Y年%m月%d日") : nil
+    end
+
+    def images
+      @images ||= @page.at('.blogbody').search('img[width!="20"]').map do |img|
+        img['src'].sub('-300x300', '').sub('-thumbnail2', '')
       end
-      @entry = previous
-    end while @entry && date > latest_downloaded_date
-  end
-
-  def write_log
-    File.open(LOG, 'w'){|f| f.puts date }
-  end
-
-  def latest
-    @page = @agent.get(BLOG)
-    @page.at('a.title')['href']
-  end
-
-  def previous
-    if @entry =~ /post-82\.html$/
-      return 'http://blog.mariko-shinoda.net/2012/01/post-81.html'
     end
-    @page ||= @agent.get(@entry)
-    (elm = @page.at('a.previous')) ? elm['href'] : nil
-  end
 
-  def images
-    @page = @agent.get(@entry)
-    @page.at('.blogbody').search('img[width!="20"]').map do |img|
-      img['src'].sub('-300x300', '').sub('-thumbnail2', '')
+    def previous_url
+      if @url =~ /post-82\.html$/
+        return 'http://blog.mariko-shinoda.net/2012/01/post-81.html'
+      end
+      @previous_url ||= (elm = @page.at('a.previous')) ? elm['href'] : nil
     end
   end
 
-  def date
-    elm = @page.at('h2.date')
-    Date.strptime(elm.text, "%Y年%m月%d日") if elm
-  end
+  class Downloader
+    def initialize(opt = {})
+      @dir = opt[:dir] || 'images'
+      File.open(LOG, 'w'){|f| f.puts '1970-01-01' } unless File.exist?(LOG)
+    end
 
-  def latest_downloaded_date
-    @latest_downloaded_date ||= Date.parse(IO.read(LOG).chomp)
-  end
+    def write_log log
+      File.open(LOG, 'w'){|f| f.puts log }
+    end
 
-  def save(image_url, path)
-    file = "#{@dir}/#{path}"
-    dir = File.dirname(file)
+    def latest_downloaded_date
+      @latest_downloaded_date ||= Date.parse(IO.read(LOG).chomp) rescue Date.new
+    end
 
-    FileUtils.mkdir_p(dir) unless Dir.exists?(dir)
-    image = @agent.get(image_url)
-    if image.response['content-type'] =~ /^image/
-      image.save(file) unless File.exists?(file)
-      puts "downloaded #{image_url} -> #{file}"
+    def save(image_url, path)
+      file = "#{@dir}/#{path}"
+      dir = File.dirname(file)
+
+      FileUtils.mkdir_p(dir) unless Dir.exists?(dir)
+      image = AGENT.get(image_url)
+      if image.response['content-type'] =~ /^image/
+        unless File.exists?(file)
+          image.save(file)
+          puts "downloaded #{image_url} -> #{file}"
+        else
+          puts "exists #{file}"
+        end
+      end
+    end
+
+    def process
+      @entry = Entry.new Entry.latest_url
+      unless @entry.date > latest_downloaded_date
+        puts 'not updated'
+        return
+      end
+      start_date = @entry.date
+      begin
+        dir = @entry.date.strftime('%Y%m%d')
+        @entry.images.each_with_index do |img, i|
+          path = "#{dir}/#{sprintf('%02d', i + 1)}#{File.extname(img)}"
+          save(img, path)
+        end
+        @entry = @entry.previous_url ? Entry.new(@entry.previous_url) : nil
+      end while @entry && @entry.date > latest_downloaded_date
+      write_log start_date
     end
   end
 end
