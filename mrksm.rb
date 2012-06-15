@@ -14,6 +14,8 @@ module Mrksm
   end
 
   class Entry
+    attr_reader :url
+
     def self.latest_url
       page = AGENT.get(BLOG)
       page.at('a.title')['href'] if page
@@ -26,6 +28,10 @@ module Mrksm
 
     def date
       @date ||= (elm = @page.at('h2.date')) ? Date.strptime(elm.text, "%Y年%m月%d日") : nil
+    end
+
+    def slug
+      @slug ||= "#{File.basename(@url, '.*')}"
     end
 
     def images
@@ -45,22 +51,9 @@ module Mrksm
   class Downloader
     def initialize(opt = {})
       @dir = opt[:dir] || 'images'
-      File.open(LOG, 'w'){|f| f.puts '1970-01-01' } unless File.exist?(LOG)
     end
 
-    def write_log log
-      File.open(LOG, 'w'){|f| f.puts log }
-    end
-
-    def latest_downloaded_date
-      @latest_downloaded_date ||= Date.parse(IO.read(LOG).chomp) rescue Date.new
-    end
-
-    def save(image_url, path)
-      file = "#{@dir}/#{path}"
-      dir = File.dirname(file)
-
-      FileUtils.mkdir_p(dir) unless Dir.exists?(dir)
+    def save(image_url, file)
       image = AGENT.get(image_url)
       if image.response['content-type'] =~ /^image/
         unless File.exists?(file)
@@ -74,20 +67,40 @@ module Mrksm
 
     def process
       @entry = Entry.new Entry.latest_url
-      unless @entry.date > latest_downloaded_date
+      @log = Log.new
+      if @entry.date < @log.date || @entry.slug == @log.slug
         puts 'not updated'
         return
       end
-      start_date = @entry.date
+      beginning_log = "#{@entry.date},#{@entry.slug}"
       begin
-        dir = @entry.date.strftime('%Y%m%d')
+        dir = "#{@dir}/#{@entry.date.strftime('%Y%m%d')}_#{@entry.slug}"
+        FileUtils.mkdir_p(dir) unless Dir.exists?(dir)
         @entry.images.each_with_index do |img, i|
-          path = "#{dir}/#{sprintf('%02d', i + 1)}#{File.extname(img)}"
-          save(img, path)
+          file = "#{dir}/#{sprintf('%02d', i + 1)}#{File.extname(img)}"
+          save(img, file)
         end
         @entry = @entry.previous_url ? Entry.new(@entry.previous_url) : nil
-      end while @entry && @entry.date > latest_downloaded_date
-      write_log start_date
+      end while @entry && @entry.date >= @log.date && @entry.slug != @log.slug
+      @log.write beginning_log
+    end
+  end
+
+  class Log
+    attr_reader :date, :slug
+
+    def initialize
+      File.open(LOG, 'w'){|f| f.puts '1970-01-01,""' } unless File.exist?(LOG)
+      date_str, @slug = read
+      @date = Date.parse(date_str) rescue Date.new
+    end
+
+    def read
+      IO.read(LOG).chomp.split(',')
+    end
+
+    def write log
+      File.open(LOG, 'w'){|f| f.puts log }
     end
   end
 end
