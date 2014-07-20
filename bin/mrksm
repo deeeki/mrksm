@@ -1,0 +1,28 @@
+#!/usr/bin/env ruby
+
+require 'optparse'
+parser, options = OptionParser.new, {}
+parser.banner = "Usage: #{File.basename($0)} options"
+parser.on('-d', '--dir DIR', 'Directory path name to save image.') { |v| options[:dir] = v }
+parser.on('-a', '--all', 'All download mode.')                     { |v| options[:all] = v }
+parser.on('-f', '--from FROM', 'From month. YYYYMM')               { |v| options[:from] = "#{v.slice(0, 6)}01" }
+parser.on('-t', '--to TO', 'To month. YYYYMM')                     { |v| options[:to] = "#{v.slice(0, 6)}01" }
+parser.on('-h', '--help', 'Prints this message and quit') { puts parser.help; exit 0 }
+
+begin
+  parser.parse!(ARGV)
+rescue OptionParser::ParseError => e
+  $stderr.puts e.message
+  $stderr.puts parser.help
+  exit 1
+else
+  require 'bundler/setup'
+  $:.unshift("#{File.dirname(__dir__)}/lib")
+  require 'mrksm'
+
+  if options[:all]
+    Mrksm::Downloader.download_all(options)
+  else
+    Mrksm::Downloader.download_latest
+  end
+end
